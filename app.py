@@ -9,10 +9,11 @@ from fpdf import FPDF
 # Configuração da página
 st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳", layout="wide")
 
-# Configuração da IA (Gemini - Atualizado para o modelo ativo correto)
+# Configuração da IA (Gemini - Compatível com chaves de Conta de Serviço)
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
+    # Tentativa com o modelo padrão atualizado
     modelo_ia = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
     modelo_ia = None
@@ -189,7 +190,13 @@ with aba_buscar_web:
                 [Modo de preparo passo a passo claro e objetivo]
                 """
                 try:
-                    resposta_ia = modelo_ia.generate_content(prompt_web)
+                    # Fallback automático caso o modelo exija prefixo
+                    try:
+                        resposta_ia = modelo_ia.generate_content(prompt_web)
+                    except:
+                        modelo_alternativo = genai.GenerativeModel('models/gemini-1.5-flash')
+                        resposta_ia = modelo_alternativo.generate_content(prompt_web)
+                        
                     texto_resposta = resposta_ia.text
                     
                     partes = texto_resposta.split("---")
