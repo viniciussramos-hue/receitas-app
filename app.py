@@ -9,7 +9,7 @@ from fpdf import FPDF
 # Configuração da página
 st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳", layout="wide")
 
-# Configuração da IA (Gemini - Atualizado para suportar a chave de Conta de Serviço)
+# Configuração da IA (Gemini)
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
@@ -86,7 +86,7 @@ def gerar_pdf(df):
 # ---------------------------------------------------------
 st.title("🍳 Meu Livro de Receitas")
 
-aba_cadastrar, aba_buscar_web, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "🔍 Buscar na Web", "Minhas Receitas"])
+aba_cadastrar, aba_buscar_web, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "🔍 Buscar Receita", "Minhas Receitas"])
 
 # ABA 1: CADASTRO MANUAL / IA POR FOTO (FOTO OPCIONAL)
 with aba_cadastrar:
@@ -166,33 +166,31 @@ with aba_cadastrar:
         else:
             st.error("Por favor, preencha pelo menos o nome da receita.")
 
-# ABA 2: BUSCAR E IMPORTAR DA WEB
+# ABA 2: BUSCAR RECEITA COM IA
 with aba_buscar_web:
-    st.header("🌐 Buscar Receita na Internet")
-    st.write("Pesquise receitas reais na web usando a inteligência artificial conectada ao Google.")
+    st.header("🔍 Buscar Receita com IA")
+    st.write("Digite o nome de qualquer prato para gerar uma receita completa e profissional instantaneamente.")
     
-    termo_busca = st.text_input("O que você quer pesquisar? (ex: Lasanha à Bolonhesa tradicional)")
+    termo_busca = st.text_input("O que você quer pesquisar? (ex: Pudim de Leite Condensado, Lasanha)")
     
-    if st.button("Pesquisar na Web com IA", type="primary") and termo_busca:
+    if st.button("Gerar Receita com IA", type="primary") and termo_busca:
         if not modelo_ia:
             st.error("Chave de API do Gemini não configurada.")
         else:
-            with st.spinner("Buscando na internet e estruturando a receita..."):
+            with st.spinner("Criando uma receita incrível para você..."):
                 prompt_web = f"""
-                Pesquise na web uma excelente receita para: '{termo_busca}'.
+                Atue como um chef renomado. Crie uma receita detalhada, tradicional e perfeita para: '{termo_busca}'.
                 Sua resposta deve conter estritamente 3 seções separadas pelas tags abaixo, sem texto extra fora delas:
                 ---NOME---
-                [Nome completo da receita encontrada]
+                [Nome oficial e atraente do prato]
                 ---INGREDIENTES---
-                [Lista de ingredientes detalhada, um por linha]
+                [Lista de ingredientes detalhada com medidas, um por linha]
                 ---PREPARO---
                 [Modo de preparo passo a passo claro e objetivo]
                 """
                 try:
-                    resposta_ia = modelo_ia.generate_content(
-                        prompt_web,
-                        tools=[{"google_search": {}}]
-                    )
+                    # Chamada limpa e compatível com qualquer chave de API
+                    resposta_ia = modelo_ia.generate_content(prompt_web)
                     texto_resposta = resposta_ia.text
                     
                     partes = texto_resposta.split("---")
@@ -211,13 +209,13 @@ with aba_buscar_web:
                     st.session_state.web_nome = nome_encontrado
                     st.session_state.web_ingredientes = ingredientes_encontrados
                     st.session_state.web_preparo = preparo_encontrado
-                    st.success("Receita encontrada na web com sucesso! Revise e importe abaixo.")
+                    st.success("Receita gerada com sucesso! Revise e importe abaixo.")
                 except Exception as e:
-                    st.error(f"Erro ao buscar online: {e}")
+                    st.error(f"Erro ao gerar receita: {e}")
 
     if "web_nome" in st.session_state and st.session_state.web_nome:
         st.divider()
-        st.subheader("📝 Pré-visualização da Receita Encontrada")
+        st.subheader("📝 Pré-visualização da Receita")
         
         with st.form(key="form_import_web"):
             imp_nome = st.text_input("Nome da Receita", value=st.session_state.web_nome)
@@ -308,7 +306,7 @@ with aba_visualizar:
                                     df_receitas.at[index, 'Categorias'] = ", ".join(novas_categorias)
                                     df_receitas.at[index, 'Nota'] = "⭐" * nova_nota
                                     df_receitas.at[index, 'Ingredientes'] = novos_ingredientes
-                                    df_receitas.at[index, 'Preparo'] = novo_preparo
+                                    df_receitas.at[index, 'Preparo'] = novos_preparo
                                     df_receitas.to_csv(ARQUIVO_DADOS, index=False)
                                     
                                     st.session_state.editando_index = None
