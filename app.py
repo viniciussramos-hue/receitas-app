@@ -4,6 +4,7 @@ import os
 from PIL import Image
 from datetime import datetime
 import google.generativeai as genai
+from fpdf import FPDF
 
 # Configuração da página
 st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳", layout="wide")
@@ -31,6 +32,64 @@ OPCOES_CATEGORIAS = ["Lanches", "Massas", "Carnes", "Sobremesas", "Saudável", "
 if not os.path.exists(PASTA_IMAGENS):
     os.makedirs(PASTA_IMAGENS)
 
+# ---------------------------------------------------------
+# FUNÇÃO PARA GERAR O PDF
+# ---------------------------------------------------------
+def gerar_pdf(df):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # Capa do Livro
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 24)
+    pdf.cell(0, 100, "", new_x="LMARGIN", new_y="NEXT") # Espaçamento
+    pdf.cell(0, 10, "Meu Livro de Receitas", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "I", 14)
+    pdf.cell(0, 10, f"Gerado em {datetime.now().strftime('%d/%m/%Y')}", align="C", new_x="LMARGIN", new_y="NEXT")
+    
+    # Páginas das Receitas
+    for index, row in df.iterrows():
+        pdf.add_page()
+        
+        # Nome da Receita
+        pdf.set_font("Helvetica", "B", 18)
+        # Transforma para string e garante que caracteres não quebrem o layout
+        nome_str = str(row['Nome']).encode('latin-1', 'replace').decode('latin-1')
+        pdf.cell(0, 10, nome_str, align="C", new_x="LMARGIN", new_y="NEXT")
+        
+        # Adiciona a Imagem (se existir)
+        caminho_img = row.get("Caminho_Imagem", "")
+        if pd.notna(caminho_img) and os.path.exists(caminho_img):
+            try:
+                # Centraliza a imagem limitando a largura
+                pdf.image(caminho_img, x=55, y=pdf.get_y() + 5, w=100)
+                pdf.set_y(pdf.get_y() + 110) # Empurra o texto para baixo da imagem
+            except:
+                pdf.ln(10)
+        else:
+            pdf.ln(10)
+            
+        # Ingredientes
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "Ingredientes:", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 12)
+        # Limpa e converte o texto para ser compatível com FPDF
+        ing_str = str(row['Ingredientes']).encode('latin-1', 'replace').decode('latin-1')
+        pdf.multi_cell(0, 7, ing_str)
+        pdf.ln(5)
+        
+        # Modo de Preparo
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "Modo de Preparo:", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 12)
+        prep_str = str(row['Preparo']).encode('latin-1', 'replace').decode('latin-1')
+        pdf.multi_cell(0, 7, prep_str)
+        
+    return pdf.output()
+
+# ---------------------------------------------------------
+# INTERFACE DO STREAMLIT
+# ---------------------------------------------------------
 st.title("🍳 Meu Livro de Receitas")
 
 aba_cadastrar, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "Minhas Receitas"])
@@ -111,7 +170,6 @@ with aba_cadastrar:
         else:
             st.error("Por favor, preencha o nome da receita e inclua uma foto.")
 
-
 # ABA 2: VISUALIZAÇÃO E GERENCIAMENTO
 with aba_visualizar:
     st.header("Minhas Receitas Salvas")
@@ -122,11 +180,23 @@ with aba_visualizar:
         if df_receitas.empty:
             st.info("Nenhuma receita cadastrada ainda. Vá para a aba 'Cadastrar Nova Receita' para começar!")
         else:
-            # Inverte para mostrar as mais recentes primeiro, mas mantemos o index original para edição
+            # Botão de Exportar para PDF
+            pdf_bytes = gerar_pdf(df_receitas)
+            st.download_button(
+                label="📥 Baixar Livro em PDF",
+                data=bytes(pdf_bytes),
+                file_name=f"Meu_Livro_de_Receitas_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                type="primary",
+                use_container_width=True
+            )
+            
+            st.divider()
+            
+            # Inverte para mostrar as mais recentes primeiro
             df_display = df_receitas.iloc[::-1]
             
             for index, row in df_display.iterrows():
-                # Tratamento de dados legados (receitas antigas)
                 nota_display = row.get('Nota', '')
                 nota_display = nota_display if pd.notna(nota_display) else ""
                 
@@ -135,13 +205,11 @@ with aba_visualizar:
                 
                 with st.expander(f"🍽️ {row['Nome']} {nota_display} (Adicionada em {row['Data']}){cat_display}"):
                     
-                    # SE ESTIVER NO MODO DE EDIÇÃO PARA ESTA RECEITA ESPECÍFICA
                     if st.session_state.editando_index == index:
                         st.markdown("### ✏️ Editar Receita")
                         with st.form(key=f"form_edit_{index}"):
                             novo_nome = st.text_input("Nome do Prato", value=row['Nome'])
                             
-                            # Recuperar valores antigos para preencher os campos
                             cat_lista_antiga = [c.strip() for c in cat_str.split(',')] if cat_str and cat_str != 'nan' else []
                             cat_lista_segura = [c for c in cat_lista_antiga if c in OPCOES_CATEGORIAS]
                             novas_categorias = st.multiselect("Categorias", OPCOES_CATEGORIAS, default=cat_lista_segura)
@@ -169,8 +237,6 @@ with aba_visualizar:
                                 if st.form_submit_button("❌ Cancelar"):
                                     st.session_state.editando_index = None
                                     st.rerun()
-                    
-                    # SE ESTIVER NO MODO DE VISUALIZAÇÃO NORMAL
                     else:
                         col1, col2 = st.columns([1, 2])
                         
@@ -189,7 +255,6 @@ with aba_visualizar:
                             
                         st.divider()
                         
-                        # Botões de Ação
                         col_btn_edit, col_btn_del, _ = st.columns([1, 1, 3])
                         with col_btn_edit:
                             if st.button("✏️ Editar", key=f"edit_{index}"):
@@ -197,14 +262,12 @@ with aba_visualizar:
                                 st.rerun()
                         with col_btn_del:
                             if st.button("🗑️ Excluir", key=f"del_{index}", type="primary"):
-                                # Tenta excluir a imagem física para não ocupar espaço
                                 if pd.notna(caminho_img) and os.path.exists(caminho_img):
                                     try:
                                         os.remove(caminho_img)
                                     except:
                                         pass
                                 
-                                # Remove a linha do banco de dados e salva
                                 df_receitas = df_receitas.drop(index)
                                 df_receitas.to_csv(ARQUIVO_DADOS, index=False)
                                 st.rerun()
