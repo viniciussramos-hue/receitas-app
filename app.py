@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-import requests
-from io import BytesIO
 from PIL import Image
 from datetime import datetime
 import google.generativeai as genai
@@ -89,7 +87,7 @@ st.title("🍳 Meu Livro de Receitas")
 
 aba_cadastrar, aba_buscar_web, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "🔍 Buscar na Web", "Minhas Receitas"])
 
-# ABA 1: CADASTRO MANUAL / IA POR FOTO
+# ABA 1: CADASTRO MANUAL / IA POR FOTO (FOTO OPCIONAL)
 with aba_cadastrar:
     st.header("Adicionar Receita")
     
@@ -104,18 +102,19 @@ with aba_cadastrar:
     ingredientes = st.text_area("Ingredientes", value=st.session_state.ingredientes_ia, height=150)
     modo_preparo = st.text_area("Modo de Preparo", value=st.session_state.preparo_ia, height=150)
     
-    st.subheader("📸 Foto do Prato")
+    st.subheader("📸 Foto do Prato (Opcional)")
     aba_camera, aba_upload = st.tabs(["📷 Usar Câmera", "📂 Enviar Arquivo"])
     
     foto = None
     with aba_camera:
-        foto_cam = st.camera_input("Tire a foto diretamente pelo celular")
+        foto_cam = st.camera_input("Tire a foto diretamente pelo celular (Opcional)")
         if foto_cam: foto = foto_cam
         
     with aba_upload:
-        foto_up = st.file_uploader("Ou selecione uma imagem da galeria", type=["jpg", "jpeg", "png"])
+        foto_up = st.file_uploader("Ou selecione uma imagem da galeria (Opcional)", type=["jpg", "jpeg", "png"])
         if foto_up: foto = foto_up
 
+    # Botão da Inteligência Artificial (só ativa se houver foto)
     if foto and modelo_ia:
         if st.button("✨ Gerar Receita com IA (Mágica!)", use_container_width=True):
             with st.spinner("Analisando o prato e escrevendo a receita..."):
@@ -133,11 +132,20 @@ with aba_cadastrar:
                 except Exception as e:
                     st.error("Erro ao conectar com a IA. Verifique sua chave de API nos Secrets do Streamlit.")
 
+    # Botão de Salvar (Agora a foto NÃO é obrigatória)
     if st.button("Salvar Receita", type="primary", use_container_width=True):
-        if nome_receita and foto:
+        if nome_receita:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
-            Image.open(foto).save(caminho_imagem)
+            caminho_imagem = ""
+            
+            # Se o usuário enviou/tirou foto, salva. Senão, cria uma imagem em branco leve.
+            if foto:
+                caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
+                Image.open(foto).save(caminho_imagem)
+            else:
+                caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
+                img_vazia = Image.new('RGB', (600, 400), color=(245, 245, 245))
+                img_vazia.save(caminho_imagem)
             
             nova_receita = pd.DataFrame([{
                 "Data": datetime.now().strftime("%d/%m/%Y"),
@@ -156,11 +164,12 @@ with aba_cadastrar:
                 df_receitas = nova_receita
                 
             df_receitas.to_csv(ARQUIVO_DADOS, index=False)
+            
             st.session_state.ingredientes_ia = ""
             st.session_state.preparo_ia = ""
             st.success(f"Receita de '{nome_receita}' salva com sucesso!")
         else:
-            st.error("Por favor, preencha o nome da receita e inclua uma foto.")
+            st.error("Por favor, preencha pelo menos o nome da receita para poder salvar.")
 
 # ABA 2: BUSCAR E IMPORTAR DA WEB
 with aba_buscar_web:
@@ -188,7 +197,6 @@ with aba_buscar_web:
                     resposta_ia = modelo_ia.generate_content(prompt_web)
                     texto_resposta = resposta_ia.text
                     
-                    # Processa a resposta da IA
                     partes = texto_resposta.split("---")
                     nome_encontrado = termo_busca.title()
                     ingredientes_encontrados = ""
@@ -209,7 +217,6 @@ with aba_buscar_web:
                 except Exception as e:
                     st.error("Erro ao buscar receita online. Tente novamente.")
 
-    # Se houver dados buscados, mostra a prévia e o botão de importar
     if "web_nome" in st.session_state and st.session_state.web_nome:
         st.divider()
         st.subheader("📝 Pré-visualização da Receita Encontrada")
@@ -225,9 +232,7 @@ with aba_buscar_web:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
                 
-                # Gera uma imagem padrão ilustrativa ou usa uma placeholder via IA se preferir
-                # Para garantir robustez, criamos uma imagem em branco estilizada ou salvamos sem foto de prato real
-                img_vazia = Image.new('RGB', (600, 400), color=(240, 240, 240))
+                img_vazia = Image.new('RGB', (600, 400), color=(245, 245, 245))
                 img_vazia.save(caminho_imagem)
                 
                 nova_receita = pd.DataFrame([{
