@@ -12,7 +12,7 @@ st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳"
 # Configuração da IA (Gemini)
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    modelo_ia = genai.GenerativeModel('gemini-1.5-flash')
+    modelo_ia = genai.GenerativeModel('gemini-2.5-flash')
 except Exception as e:
     modelo_ia = None
 
@@ -114,7 +114,6 @@ with aba_cadastrar:
         foto_up = st.file_uploader("Ou selecione uma imagem da galeria (Opcional)", type=["jpg", "jpeg", "png"])
         if foto_up: foto = foto_up
 
-    # Botão da Inteligência Artificial (só ativa se houver foto)
     if foto and modelo_ia:
         if st.button("✨ Gerar Receita com IA (Mágica!)", use_container_width=True):
             with st.spinner("Analisando o prato e escrevendo a receita..."):
@@ -130,20 +129,16 @@ with aba_cadastrar:
                     st.session_state.preparo_ia = res_preparo.text
                     st.rerun() 
                 except Exception as e:
-                    st.error("Erro ao conectar com a IA. Verifique sua chave de API nos Secrets do Streamlit.")
+                    st.error("Erro ao conectar com a IA.")
 
-    # Botão de Salvar (Agora a foto NÃO é obrigatória)
     if st.button("Salvar Receita", type="primary", use_container_width=True):
         if nome_receita:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            caminho_imagem = ""
+            caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
             
-            # Se o usuário enviou/tirou foto, salva. Senão, cria uma imagem em branco leve.
             if foto:
-                caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
                 Image.open(foto).save(caminho_imagem)
             else:
-                caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
                 img_vazia = Image.new('RGB', (600, 400), color=(245, 245, 245))
                 img_vazia.save(caminho_imagem)
             
@@ -164,37 +159,39 @@ with aba_cadastrar:
                 df_receitas = nova_receita
                 
             df_receitas.to_csv(ARQUIVO_DADOS, index=False)
-            
             st.session_state.ingredientes_ia = ""
             st.session_state.preparo_ia = ""
             st.success(f"Receita de '{nome_receita}' salva com sucesso!")
         else:
-            st.error("Por favor, preencha pelo menos o nome da receita para poder salvar.")
+            st.error("Por favor, preencha pelo menos o nome da receita.")
 
 # ABA 2: BUSCAR E IMPORTAR DA WEB
 with aba_buscar_web:
     st.header("🌐 Buscar Receita na Internet")
-    st.write("Digite o nome de um prato ou receita que deseja procurar online e importar para o seu livro.")
+    st.write("Pesquise receitas reais na web usando a inteligência artificial conectada ao Google.")
     
-    termo_busca = st.text_input("O que você procura? (ex: Strogonoff de Frango, Pudim de Leite)")
+    termo_busca = st.text_input("O que você quer pesquisar? (ex: Lasanha à Bolonhesa tradicional)")
     
     if st.button("Pesquisar na Web com IA", type="primary") and termo_busca:
         if not modelo_ia:
             st.error("Chave de API do Gemini não configurada.")
         else:
-            with st.spinner("Pesquisando receita e estruturando os dados..."):
+            with st.spinner("Buscando na internet e estruturando a receita..."):
                 prompt_web = f"""
-                Atue como um chef de cozinha e pesquisador web. Crie ou recupere uma receita detalhada e excelente para: '{termo_busca}'.
+                Pesquise na web uma excelente receita para: '{termo_busca}'.
                 Sua resposta deve conter estritamente 3 seções separadas pelas tags abaixo, sem texto extra fora delas:
                 ---NOME---
-                [Nome oficial e atraente do prato]
+                [Nome completo da receita encontrada]
                 ---INGREDIENTES---
                 [Lista de ingredientes detalhada, um por linha]
                 ---PREPARO---
                 [Modo de preparo passo a passo claro e objetivo]
                 """
                 try:
-                    resposta_ia = modelo_ia.generate_content(prompt_web)
+                    resposta_ia = modelo_ia.generate_content(
+                        prompt_web,
+                        tools=[{"google_search": {}}]
+                    )
                     texto_resposta = resposta_ia.text
                     
                     partes = texto_resposta.split("---")
@@ -213,9 +210,9 @@ with aba_buscar_web:
                     st.session_state.web_nome = nome_encontrado
                     st.session_state.web_ingredientes = ingredientes_encontrados
                     st.session_state.web_preparo = preparo_encontrado
-                    st.success("Receita encontrada com sucesso! Revise abaixo e clique em importar.")
+                    st.success("Receita encontrada na web com sucesso! Revise e importe abaixo.")
                 except Exception as e:
-                    st.error("Erro ao buscar receita online. Tente novamente.")
+                    st.error(f"Erro ao buscar online: {e}")
 
     if "web_nome" in st.session_state and st.session_state.web_nome:
         st.divider()
@@ -252,7 +249,7 @@ with aba_buscar_web:
                     df_receitas = nova_receita
                     
                 df_receitas.to_csv(ARQUIVO_DADOS, index=False)
-                st.success(f"Receita '{imp_nome}' importada e salva com sucesso na aba 'Minhas Receitas'!")
+                st.success(f"Receita '{imp_nome}' importada com sucesso!")
                 del st.session_state.web_nome
 
 # ABA 3: VISUALIZAÇÃO, GERENCIAMENTO E PDF
