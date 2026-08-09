@@ -11,7 +11,7 @@ st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳"
 
 # Configuração da IA (Gemini)
 try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     modelo_ia = genai.GenerativeModel('gemini-2.5-flash')
 except Exception as e:
     modelo_ia = None
