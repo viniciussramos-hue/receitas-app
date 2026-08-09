@@ -4,9 +4,7 @@ import os
 from PIL import Image
 from datetime import datetime
 from fpdf import FPDF
-from googlesearch import search
-import requests
-from bs4 import BeautifulSoup
+import urllib.parse
 
 # Configuração da página
 st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳", layout="wide")
@@ -14,6 +12,8 @@ st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳"
 # Variáveis de sessão
 if "editando_index" not in st.session_state:
     st.session_state.editando_index = None
+if "deletando_index" not in st.session_state:
+    st.session_state.deletando_index = None
 
 # Pastas e arquivos
 PASTA_IMAGENS = "imagens_receitas"
@@ -76,7 +76,7 @@ def gerar_pdf(df):
 # ---------------------------------------------------------
 st.title("🍳 Meu Livro de Receitas")
 
-aba_cadastrar, aba_buscar_web, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "🔍 Pesquisar na Web", "Minhas Receitas"])
+aba_cadastrar, aba_pesquisar, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "🔍 Pesquisar na Web", "Minhas Receitas"])
 
 # ABA 1: CADASTRO MANUAL
 with aba_cadastrar:
@@ -128,39 +128,41 @@ with aba_cadastrar:
         else:
             st.error("Por favor, preencha pelo menos o nome da receita.")
 
-# ABA 2: PESQUISAR NA WEB SEM IA
-with aba_buscar_web:
+# ABA 2: PESQUISAR NA WEB COM LINKS DIRETOS
+with aba_pesquisar:
     st.header("🔍 Pesquisar Receitas na Web")
-    st.write("Busque receitas reais diretamente no Google e importe para o seu livro.")
+    st.write("Digite o que deseja pesquisar e acesse rapidamente as melhores opções de receitas na internet.")
     
     termo_busca = st.text_input("O que você quer pesquisar?", value="Pão de Queijo")
     
-    if st.button("Buscar no Google", type="primary"):
-        with st.spinner("Pesquisando na web..."):
-            try:
-                # Realiza a busca no Google (retorna links)
-                links = list(search(f"receita {termo_busca}", num_results=5))
-                st.session_state.links_encontrados = links
-                st.success(f"Encontrados {len(links)} sites de receitas!")
-            except Exception as e:
-                st.error(f"Erro na busca: {e}")
-
-    if "links_encontrados" in st.session_state and st.session_state.links_encontrados:
-        st.divider()
-        st.subheader("🌐 Sites Encontrados:")
+    if st.button("Gerar Links de Pesquisa", type="primary"):
+        termo_cod = urllib.parse.quote(f"receita de {termo_busca}")
         
-        for i, link in enumerate(st.session_state.links_encontrados):
-            st.markdown(f"[{link}]({link})")
+        # Links diretos para os principais buscadores e portais de receitas
+        st.session_state.links_web = [
+            ("Google Search", f"https://www.google.com/search?q={termo_cod}"),
+            ("TudoGostoso", f"https://www.tudogostoso.com.br/busca?q={termo_cod}"),
+            ("Tua Casa", f"https://www.tuacasa.com.br/?s={termo_cod}"),
+            ("Panelinha (Rita Lobo)", f"https://www.panelinha.com.br/busca?q={termo_cod}")
+        ]
+        st.success("Links de pesquisa gerados com sucesso!")
+
+    if "links_web" in st.session_state and st.session_state.links_web:
+        st.divider()
+        st.subheader("🌐 Escolha onde ver a receita:")
+        
+        for nome_site, url in st.session_state.links_web:
+            st.markdown(f"👉 **[{nome_site}]({url})** (Clique para abrir em nova aba)")
             
         st.divider()
-        st.subheader("📥 Importar Receita Encontrada")
+        st.subheader("📥 Importar Receita para o Livro")
         
         with st.form(key="form_import_web"):
             imp_nome = st.text_input("Nome da Receita", value=termo_busca.title())
             imp_cat = st.multiselect("Categorias (Tags)", OPCOES_CATEGORIAS, key="cat_web")
             imp_nota = st.slider("Avaliação Inicial", 1, 5, 5, key="nota_web")
-            imp_ing = st.text_area("Copie os Ingredientes do site aqui:", height=150)
-            imp_prep = st.text_area("Copie o Modo de Preparo do site aqui:", height=150)
+            imp_ing = st.text_area("Cole os Ingredientes copiados do site aqui:", height=150)
+            imp_prep = st.text_area("Cole o Modo de Preparo copiado do site aqui:", height=150)
             
             if st.form_submit_button("Salvar no Meu Livro", type="primary"):
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -188,7 +190,7 @@ with aba_buscar_web:
                 df_receitas.to_csv(ARQUIVO_DADOS, index=False)
                 st.success(f"Receita '{imp_nome}' salva com sucesso no seu livro!")
 
-# ABA 3: VISUALIZAÇÃO, GERENCIAMENTO E PDF
+# ABA 3: VISUALIZAÇÃO, GERENCIAMENTO, EDIÇÃO E EXCLUSÃO COM CONFIRMAÇÃO
 with aba_visualizar:
     st.header("Minhas Receitas Salvas")
     
@@ -275,17 +277,34 @@ with aba_visualizar:
                         with col_btn_edit:
                             if st.button("✏️ Editar", key=f"edit_{index}"):
                                 st.session_state.editando_index = index
+                                st.session_state.deletando_index = None
                                 st.rerun()
                         with col_btn_del:
                             if st.button("🗑️ Excluir", key=f"del_{index}", type="primary"):
-                                if pd.notna(caminho_img) and os.path.exists(caminho_img):
-                                    try:
-                                        os.remove(caminho_img)
-                                    except:
-                                        pass
-                                
-                                df_receitas = df_receitas.drop(index)
-                                df_receitas.to_csv(ARQUIVO_DADOS, index=False)
+                                st.session_state.deletando_index = index
+                                st.session_state.editando_index = None
                                 st.rerun()
+                                
+                        # Bloco de Confirmação de Exclusão
+                        if st.session_state.deletando_index == index:
+                            st.warning(f"Tem certeza que deseja excluir a receita '{row['Nome']}'?")
+                            col_conf, col_nao = st.columns(2)
+                            with col_conf:
+                                if st.button("Sim, Excluir", key=f"conf_del_{index}", type="primary"):
+                                    caminho_img = row.get("Caminho_Imagem", "")
+                                    if pd.notna(caminho_img) and os.path.exists(caminho_img):
+                                        try:
+                                            os.remove(caminho_img)
+                                        except:
+                                            pass
+                                    
+                                    df_receitas = df_receitas.drop(index)
+                                    df_receitas.to_csv(ARQUIVO_DADOS, index=False)
+                                    st.session_state.deletando_index = None
+                                    st.rerun()
+                            with col_nao:
+                                if st.button("Não, Cancelar", key=f"canc_del_{index}"):
+                                    st.session_state.deletando_index = None
+                                    st.rerun()
     else:
         st.info("Nenhuma receita cadastrada ainda.")
