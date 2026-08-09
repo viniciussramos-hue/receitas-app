@@ -3,38 +3,15 @@ import pandas as pd
 import os
 from PIL import Image
 from datetime import datetime
-import google.generativeai as genai
 from fpdf import FPDF
-import google.auth
-from google.auth.transport.requests import Request
+from googlesearch import search
+import requests
+from bs4 import BeautifulSoup
 
 # Configuração da página
 st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳", layout="wide")
 
-# Configuração da IA (Adaptada para aceitar tokens AQ... de Conta de Serviço)
-modelo_ia = None
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-    
-    # Se a chave começar com AQ..., tratamos como token de acesso/Bearer do Google Cloud
-    if api_key.startswith("AQ"):
-        genai.configure(api_key=api_key)
-    else:
-        genai.configure(api_key=api_key)
-        
-    modelo_ia = genai.GenerativeModel('gemini-1.5-flash')
-except Exception as e:
-    # Fallback caso ocorra qualquer erro de modelo
-    try:
-        modelo_ia = genai.GenerativeModel('gemini-pro')
-    except:
-        modelo_ia = None
-
 # Variáveis de sessão
-if "ingredientes_ia" not in st.session_state:
-    st.session_state.ingredientes_ia = ""
-if "preparo_ia" not in st.session_state:
-    st.session_state.preparo_ia = ""
 if "editando_index" not in st.session_state:
     st.session_state.editando_index = None
 
@@ -99,13 +76,13 @@ def gerar_pdf(df):
 # ---------------------------------------------------------
 st.title("🍳 Meu Livro de Receitas")
 
-aba_cadastrar, aba_buscar_web, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "🔍 Buscar Receita", "Minhas Receitas"])
+aba_cadastrar, aba_buscar_web, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "🔍 Pesquisar na Web", "Minhas Receitas"])
 
-# ABA 1: CADASTRO MANUAL / IA POR FOTO (FOTO OPCIONAL)
+# ABA 1: CADASTRO MANUAL
 with aba_cadastrar:
-    st.header("Adicionar Receita")
+    st.header("Adicionar Receita Manualmente")
     
-    nome_receita = st.text_input("Nome do Prato (ex: Hambúrguer Artesanal, Lamen, etc.)")
+    nome_receita = st.text_input("Nome do Prato (ex: Hambúrguer Artesanal, Pão de Queijo)")
     
     col_cat, col_nota = st.columns(2)
     with col_cat:
@@ -113,45 +90,19 @@ with aba_cadastrar:
     with col_nota:
         nota = st.slider("Avaliação (Estrelas)", 1, 5, 5)
     
-    ingredientes = st.text_area("Ingredientes", value=st.session_state.ingredientes_ia, height=150)
-    modo_preparo = st.text_area("Modo de Preparo", value=st.session_state.preparo_ia, height=150)
+    ingredientes = st.text_area("Ingredientes", height=150)
+    modo_preparo = st.text_area("Modo de Preparo", height=150)
     
     st.subheader("📸 Foto do Prato (Opcional)")
-    aba_camera, aba_upload = st.tabs(["📷 Usar Câmera", "📂 Enviar Arquivo"])
-    
-    foto = None
-    with aba_camera:
-        foto_cam = st.camera_input("Tire a foto diretamente pelo celular (Opcional)")
-        if foto_cam: foto = foto_cam
-        
-    with aba_upload:
-        foto_up = st.file_uploader("Ou selecione uma imagem da galeria (Opcional)", type=["jpg", "jpeg", "png"])
-        if foto_up: foto = foto_up
-
-    if foto and modelo_ia:
-        if st.button("✨ Gerar Receita com IA (Mágica!)", use_container_width=True):
-            with st.spinner("Analisando o prato e escrevendo a receita..."):
-                img = Image.open(foto)
-                prompt_ingredientes = "Liste apenas os prováveis ingredientes da comida nesta foto, um por linha, sem introduções."
-                prompt_preparo = "Crie um modo de preparo passo a passo provável para a comida da foto, de forma direta."
-                
-                try:
-                    res_ingredientes = modelo_ia.generate_content([prompt_ingredientes, img])
-                    res_preparo = modelo_ia.generate_content([prompt_preparo, img])
-                    
-                    st.session_state.ingredientes_ia = res_ingredientes.text
-                    st.session_state.preparo_ia = res_preparo.text
-                    st.rerun() 
-                except Exception as e:
-                    st.error(f"Erro ao conectar com a IA: {e}")
+    foto_up = st.file_uploader("Selecione uma imagem da galeria", type=["jpg", "jpeg", "png"])
 
     if st.button("Salvar Receita", type="primary", use_container_width=True):
         if nome_receita:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
             
-            if foto:
-                Image.open(foto).save(caminho_imagem)
+            if foto_up:
+                Image.open(foto_up).save(caminho_imagem)
             else:
                 img_vazia = Image.new('RGB', (600, 400), color=(245, 245, 245))
                 img_vazia.save(caminho_imagem)
@@ -173,70 +124,45 @@ with aba_cadastrar:
                 df_receitas = nova_receita
                 
             df_receitas.to_csv(ARQUIVO_DADOS, index=False)
-            st.session_state.ingredientes_ia = ""
-            st.session_state.preparo_ia = ""
             st.success(f"Receita de '{nome_receita}' salva com sucesso!")
         else:
             st.error("Por favor, preencha pelo menos o nome da receita.")
 
-# ABA 2: BUSCAR RECEITA COM IA
+# ABA 2: PESQUISAR NA WEB SEM IA
 with aba_buscar_web:
-    st.header("🔍 Buscar Receita com IA")
-    st.write("Digite o nome de qualquer prato para gerar uma receita completa e profissional instantaneamente.")
+    st.header("🔍 Pesquisar Receitas na Web")
+    st.write("Busque receitas reais diretamente no Google e importe para o seu livro.")
     
-    termo_busca = st.text_input("O que você quer pesquisar? (ex: Pudim de Leite Condensado, Lasanha)")
+    termo_busca = st.text_input("O que você quer pesquisar?", value="Pão de Queijo")
     
-    if st.button("Gerar Receita com IA", type="primary") and termo_busca:
-        if not modelo_ia:
-            st.error("Chave de API do Gemini não configurada corretamente.")
-        else:
-            with st.spinner("Criando uma receita incrível para você..."):
-                prompt_web = f"""
-                Atue como um chef renomado. Crie uma receita detalhada, tradicional e perfeita para: '{termo_busca}'.
-                Sua resposta deve conter estritamente 3 seções separadas pelas tags abaixo, sem texto extra fora delas:
-                ---NOME---
-                [Nome oficial e atraente do prato]
-                ---INGREDIENTES---
-                [Lista de ingredientes detalhada com medidas, um por linha]
-                ---PREPARO---
-                [Modo de preparo passo a passo claro e objetivo]
-                """
-                try:
-                    resposta_ia = modelo_ia.generate_content(prompt_web)
-                    texto_resposta = resposta_ia.text
-                    
-                    partes = texto_resposta.split("---")
-                    nome_encontrado = termo_busca.title()
-                    ingredientes_encontrados = ""
-                    preparo_encontrado = ""
-                    
-                    for i, p in enumerate(partes):
-                        if "INGREDIENTES" in p and i + 1 < len(partes):
-                            ingredientes_encontrados = partes[i+1].strip()
-                        elif "PREPARO" in p and i + 1 < len(partes):
-                            preparo_encontrado = partes[i+1].strip()
-                        elif "NOME" in p and i + 1 < len(partes):
-                            nome_encontrado = partes[i+1].strip()
-                            
-                    st.session_state.web_nome = nome_encontrado
-                    st.session_state.web_ingredientes = ingredientes_encontrados
-                    st.session_state.web_preparo = preparo_encontrado
-                    st.success("Receita gerada com sucesso! Revise e importe abaixo.")
-                except Exception as e:
-                    st.error(f"Erro ao gerar receita: {e}")
+    if st.button("Buscar no Google", type="primary"):
+        with st.spinner("Pesquisando na web..."):
+            try:
+                # Realiza a busca no Google (retorna links)
+                links = list(search(f"receita {termo_busca}", num_results=5))
+                st.session_state.links_encontrados = links
+                st.success(f"Encontrados {len(links)} sites de receitas!")
+            except Exception as e:
+                st.error(f"Erro na busca: {e}")
 
-    if "web_nome" in st.session_state and st.session_state.web_nome:
+    if "links_encontrados" in st.session_state and st.session_state.links_encontrados:
         st.divider()
-        st.subheader("📝 Pré-visualização da Receita")
+        st.subheader("🌐 Sites Encontrados:")
+        
+        for i, link in enumerate(st.session_state.links_encontrados):
+            st.markdown(f"[{link}]({link})")
+            
+        st.divider()
+        st.subheader("📥 Importar Receita Encontrada")
         
         with st.form(key="form_import_web"):
-            imp_nome = st.text_input("Nome da Receita", value=st.session_state.web_nome)
-            imp_cat = st.multiselect("Categorias (Tags)", OPCOES_CATEGORIAS)
-            imp_nota = st.slider("Avaliação Inicial", 1, 5, 5)
-            imp_ing = st.text_area("Ingredientes", value=st.session_state.web_ingredientes, height=150)
-            imp_prep = st.text_area("Modo de Preparo", value=st.session_state.web_preparo, height=150)
+            imp_nome = st.text_input("Nome da Receita", value=termo_busca.title())
+            imp_cat = st.multiselect("Categorias (Tags)", OPCOES_CATEGORIAS, key="cat_web")
+            imp_nota = st.slider("Avaliação Inicial", 1, 5, 5, key="nota_web")
+            imp_ing = st.text_area("Copie os Ingredientes do site aqui:", height=150)
+            imp_prep = st.text_area("Copie o Modo de Preparo do site aqui:", height=150)
             
-            if st.form_submit_button("📥 Importar e Salvar no Meu Livro", type="primary"):
+            if st.form_submit_button("Salvar no Meu Livro", type="primary"):
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
                 
@@ -260,8 +186,7 @@ with aba_buscar_web:
                     df_receitas = nova_receita
                     
                 df_receitas.to_csv(ARQUIVO_DADOS, index=False)
-                st.success(f"Receita '{imp_nome}' importada com sucesso!")
-                del st.session_state.web_nome
+                st.success(f"Receita '{imp_nome}' salva com sucesso no seu livro!")
 
 # ABA 3: VISUALIZAÇÃO, GERENCIAMENTO E PDF
 with aba_visualizar:
@@ -303,13 +228,13 @@ with aba_visualizar:
                             
                             cat_lista_antiga = [c.strip() for c in cat_str.split(',')] if cat_str and cat_str != 'nan' else []
                             cat_lista_segura = [c for c in cat_lista_antiga if c in OPCOES_CATEGORIAS]
-                            novas_categorias = st.multiselect("Categorias", OPCOES_CATEGORIAS, default=cat_lista_segura)
+                            novas_categorias = st.multiselect("Categorias", OPCOES_CATEGORIAS, default=cat_lista_segura, key=f"cat_ed_{index}")
                             
                             nota_num = nota_display.count('⭐') if '⭐' in nota_display else 5
-                            nova_nota = st.slider("Avaliação", 1, 5, max(1, min(5, int(nota_num))))
+                            nova_nota = st.slider("Avaliação", 1, 5, max(1, min(5, int(nota_num))), key=f"nota_ed_{index}")
                             
-                            novos_ingredientes = st.text_area("Ingredientes", value=row['Ingredientes'], height=150)
-                            novo_preparo = st.text_area("Modo de Preparo", value=row['Preparo'], height=150)
+                            novos_ingredientes = st.text_area("Ingredientes", value=row['Ingredientes'], height=150, key=f"ing_ed_{index}")
+                            novo_preparo = st.text_area("Modo de Preparo", value=row['Preparo'], height=150, key=f"prep_ed_{index}")
                             
                             col_salvar, col_cancelar = st.columns(2)
                             with col_salvar:
@@ -318,7 +243,7 @@ with aba_visualizar:
                                     df_receitas.at[index, 'Categorias'] = ", ".join(novas_categorias)
                                     df_receitas.at[index, 'Nota'] = "⭐" * nova_nota
                                     df_receitas.at[index, 'Ingredientes'] = novos_ingredientes
-                                    df_receitas.at[index, 'Preparo'] = novos_preparo
+                                    df_receitas.at[index, 'Preparo'] = novo_preparo
                                     df_receitas.to_csv(ARQUIVO_DADOS, index=False)
                                     
                                     st.session_state.editando_index = None
