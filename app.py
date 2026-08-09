@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
+import requests
+from io import BytesIO
 from PIL import Image
 from datetime import datetime
 import google.generativeai as genai
@@ -16,7 +18,7 @@ try:
 except Exception as e:
     modelo_ia = None
 
-# Variáveis de sessão para preenchimento automático da IA e modo de edição
+# Variáveis de sessão
 if "ingredientes_ia" not in st.session_state:
     st.session_state.ingredientes_ia = ""
 if "preparo_ia" not in st.session_state:
@@ -42,7 +44,7 @@ def gerar_pdf(df):
     # Capa do Livro
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 24)
-    pdf.cell(0, 100, "", new_x="LMARGIN", new_y="NEXT") # Espaçamento
+    pdf.cell(0, 100, "", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 10, "Meu Livro de Receitas", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "I", 14)
     pdf.cell(0, 10, f"Gerado em {datetime.now().strftime('%d/%m/%Y')}", align="C", new_x="LMARGIN", new_y="NEXT")
@@ -51,34 +53,27 @@ def gerar_pdf(df):
     for index, row in df.iterrows():
         pdf.add_page()
         
-        # Nome da Receita
         pdf.set_font("Helvetica", "B", 18)
-        # Transforma para string e garante que caracteres não quebrem o layout
         nome_str = str(row['Nome']).encode('latin-1', 'replace').decode('latin-1')
         pdf.cell(0, 10, nome_str, align="C", new_x="LMARGIN", new_y="NEXT")
         
-        # Adiciona a Imagem (se existir)
         caminho_img = row.get("Caminho_Imagem", "")
         if pd.notna(caminho_img) and os.path.exists(caminho_img):
             try:
-                # Centraliza a imagem limitando a largura
                 pdf.image(caminho_img, x=55, y=pdf.get_y() + 5, w=100)
-                pdf.set_y(pdf.get_y() + 110) # Empurra o texto para baixo da imagem
+                pdf.set_y(pdf.get_y() + 110)
             except:
                 pdf.ln(10)
         else:
             pdf.ln(10)
             
-        # Ingredientes
         pdf.set_font("Helvetica", "B", 14)
         pdf.cell(0, 10, "Ingredientes:", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 12)
-        # Limpa e converte o texto para ser compatível com FPDF
         ing_str = str(row['Ingredientes']).encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(0, 7, ing_str)
         pdf.ln(5)
         
-        # Modo de Preparo
         pdf.set_font("Helvetica", "B", 14)
         pdf.cell(0, 10, "Modo de Preparo:", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 12)
@@ -92,9 +87,9 @@ def gerar_pdf(df):
 # ---------------------------------------------------------
 st.title("🍳 Meu Livro de Receitas")
 
-aba_cadastrar, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "Minhas Receitas"])
+aba_cadastrar, aba_buscar_web, aba_visualizar = st.tabs(["Cadastrar Nova Receita", "🔍 Buscar na Web", "Minhas Receitas"])
 
-# ABA 1: CADASTRO
+# ABA 1: CADASTRO MANUAL / IA POR FOTO
 with aba_cadastrar:
     st.header("Adicionar Receita")
     
@@ -110,7 +105,6 @@ with aba_cadastrar:
     modo_preparo = st.text_area("Modo de Preparo", value=st.session_state.preparo_ia, height=150)
     
     st.subheader("📸 Foto do Prato")
-    
     aba_camera, aba_upload = st.tabs(["📷 Usar Câmera", "📂 Enviar Arquivo"])
     
     foto = None
@@ -143,7 +137,6 @@ with aba_cadastrar:
         if nome_receita and foto:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
-            
             Image.open(foto).save(caminho_imagem)
             
             nova_receita = pd.DataFrame([{
@@ -163,14 +156,101 @@ with aba_cadastrar:
                 df_receitas = nova_receita
                 
             df_receitas.to_csv(ARQUIVO_DADOS, index=False)
-            
             st.session_state.ingredientes_ia = ""
             st.session_state.preparo_ia = ""
             st.success(f"Receita de '{nome_receita}' salva com sucesso!")
         else:
             st.error("Por favor, preencha o nome da receita e inclua uma foto.")
 
-# ABA 2: VISUALIZAÇÃO E GERENCIAMENTO
+# ABA 2: BUSCAR E IMPORTAR DA WEB
+with aba_buscar_web:
+    st.header("🌐 Buscar Receita na Internet")
+    st.write("Digite o nome de um prato ou receita que deseja procurar online e importar para o seu livro.")
+    
+    termo_busca = st.text_input("O que você procura? (ex: Strogonoff de Frango, Pudim de Leite)")
+    
+    if st.button("Pesquisar na Web com IA", type="primary") and termo_busca:
+        if not modelo_ia:
+            st.error("Chave de API do Gemini não configurada.")
+        else:
+            with st.spinner("Pesquisando receita e estruturando os dados..."):
+                prompt_web = f"""
+                Atue como um chef de cozinha e pesquisador web. Crie ou recupere uma receita detalhada e excelente para: '{termo_busca}'.
+                Sua resposta deve conter estritamente 3 seções separadas pelas tags abaixo, sem texto extra fora delas:
+                ---NOME---
+                [Nome oficial e atraente do prato]
+                ---INGREDIENTES---
+                [Lista de ingredientes detalhada, um por linha]
+                ---PREPARO---
+                [Modo de preparo passo a passo claro e objetivo]
+                """
+                try:
+                    resposta_ia = modelo_ia.generate_content(prompt_web)
+                    texto_resposta = resposta_ia.text
+                    
+                    # Processa a resposta da IA
+                    partes = texto_resposta.split("---")
+                    nome_encontrado = termo_busca.title()
+                    ingredientes_encontrados = ""
+                    preparo_encontrado = ""
+                    
+                    for i, p in enumerate(partes):
+                        if "INGREDIENTES" in p and i + 1 < len(partes):
+                            ingredientes_encontrados = partes[i+1].strip()
+                        elif "PREPARO" in p and i + 1 < len(partes):
+                            preparo_encontrado = partes[i+1].strip()
+                        elif "NOME" in p and i + 1 < len(partes):
+                            nome_encontrado = partes[i+1].strip()
+                            
+                    st.session_state.web_nome = nome_encontrado
+                    st.session_state.web_ingredientes = ingredientes_encontrados
+                    st.session_state.web_preparo = preparo_encontrado
+                    st.success("Receita encontrada com sucesso! Revise abaixo e clique em importar.")
+                except Exception as e:
+                    st.error("Erro ao buscar receita online. Tente novamente.")
+
+    # Se houver dados buscados, mostra a prévia e o botão de importar
+    if "web_nome" in st.session_state and st.session_state.web_nome:
+        st.divider()
+        st.subheader("📝 Pré-visualização da Receita Encontrada")
+        
+        with st.form(key="form_import_web"):
+            imp_nome = st.text_input("Nome da Receita", value=st.session_state.web_nome)
+            imp_cat = st.multiselect("Categorias (Tags)", OPCOES_CATEGORIAS)
+            imp_nota = st.slider("Avaliação Inicial", 1, 5, 5)
+            imp_ing = st.text_area("Ingredientes", value=st.session_state.web_ingredientes, height=150)
+            imp_prep = st.text_area("Modo de Preparo", value=st.session_state.web_preparo, height=150)
+            
+            if st.form_submit_button("📥 Importar e Salvar no Meu Livro", type="primary"):
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                caminho_imagem = f"{PASTA_IMAGENS}/img_{timestamp}.jpg"
+                
+                # Gera uma imagem padrão ilustrativa ou usa uma placeholder via IA se preferir
+                # Para garantir robustez, criamos uma imagem em branco estilizada ou salvamos sem foto de prato real
+                img_vazia = Image.new('RGB', (600, 400), color=(240, 240, 240))
+                img_vazia.save(caminho_imagem)
+                
+                nova_receita = pd.DataFrame([{
+                    "Data": datetime.now().strftime("%d/%m/%Y"),
+                    "Nome": imp_nome,
+                    "Categorias": ", ".join(imp_cat),
+                    "Nota": "⭐" * imp_nota,
+                    "Ingredientes": imp_ing,
+                    "Preparo": imp_prep,
+                    "Caminho_Imagem": caminho_imagem
+                }])
+                
+                if os.path.exists(ARQUIVO_DADOS):
+                    df_receitas = pd.read_csv(ARQUIVO_DADOS)
+                    df_receitas = pd.concat([df_receitas, nova_receita], ignore_index=True)
+                else:
+                    df_receitas = nova_receita
+                    
+                df_receitas.to_csv(ARQUIVO_DADOS, index=False)
+                st.success(f"Receita '{imp_nome}' importada e salva com sucesso na aba 'Minhas Receitas'!")
+                del st.session_state.web_nome
+
+# ABA 3: VISUALIZAÇÃO, GERENCIAMENTO E PDF
 with aba_visualizar:
     st.header("Minhas Receitas Salvas")
     
@@ -178,9 +258,8 @@ with aba_visualizar:
         df_receitas = pd.read_csv(ARQUIVO_DADOS)
         
         if df_receitas.empty:
-            st.info("Nenhuma receita cadastrada ainda. Vá para a aba 'Cadastrar Nova Receita' para começar!")
+            st.info("Nenhuma receita cadastrada ainda.")
         else:
-            # Botão de Exportar para PDF
             pdf_bytes = gerar_pdf(df_receitas)
             st.download_button(
                 label="📥 Baixar Livro em PDF",
@@ -193,7 +272,6 @@ with aba_visualizar:
             
             st.divider()
             
-            # Inverte para mostrar as mais recentes primeiro
             df_display = df_receitas.iloc[::-1]
             
             for index, row in df_display.iterrows():
@@ -272,4 +350,4 @@ with aba_visualizar:
                                 df_receitas.to_csv(ARQUIVO_DADOS, index=False)
                                 st.rerun()
     else:
-        st.info("Nenhuma receita cadastrada ainda. Vá para a aba 'Cadastrar Nova Receita' para começar!")
+        st.info("Nenhuma receita cadastrada ainda.")
