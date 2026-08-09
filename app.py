@@ -9,14 +9,12 @@ from fpdf import FPDF
 # Configuração da página
 st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳", layout="wide")
 
-# Configuração da IA (Gemini - Compatível com chaves de Conta de Serviço)
+# Configuração da IA (Gemini)
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    # Tentativa com o modelo padrão atualizado
-    modelo_ia = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    modelo_ia = None
+    pass
 
 # Variáveis de sessão
 if "ingredientes_ia" not in st.session_state:
@@ -116,22 +114,33 @@ with aba_cadastrar:
         foto_up = st.file_uploader("Ou selecione uma imagem da galeria (Opcional)", type=["jpg", "jpeg", "png"])
         if foto_up: foto = foto_up
 
-    if foto and modelo_ia:
+    if foto:
         if st.button("✨ Gerar Receita com IA (Mágica!)", use_container_width=True):
             with st.spinner("Analisando o prato e escrevendo a receita..."):
                 img = Image.open(foto)
                 prompt_ingredientes = "Liste apenas os prováveis ingredientes da comida nesta foto, um por linha, sem introduções."
                 prompt_preparo = "Crie um modo de preparo passo a passo provável para a comida da foto, de forma direta."
                 
-                try:
-                    res_ingredientes = modelo_ia.generate_content([prompt_ingredientes, img])
-                    res_preparo = modelo_ia.generate_content([prompt_preparo, img])
-                    
-                    st.session_state.ingredientes_ia = res_ingredientes.text
-                    st.session_state.preparo_ia = res_preparo.text
-                    st.rerun() 
-                except Exception as e:
-                    st.error(f"Erro ao conectar com a IA: {e}")
+                modelos_teste = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro']
+                sucesso = False
+                
+                for nome_m in modelos_teste:
+                    try:
+                        m = genai.GenerativeModel(nome_m)
+                        res_ingredientes = m.generate_content([prompt_ingredientes, img])
+                        res_preparo = m.generate_content([prompt_preparo, img])
+                        
+                        st.session_state.ingredientes_ia = res_ingredientes.text
+                        st.session_state.preparo_ia = res_preparo.text
+                        sucesso = True
+                        break
+                    except:
+                        continue
+                
+                if sucesso:
+                    st.rerun()
+                else:
+                    st.error("Erro ao conectar com a IA. Verifique sua chave de API nos Secrets.")
 
     if st.button("Salvar Receita", type="primary", use_container_width=True):
         if nome_receita:
@@ -167,7 +176,7 @@ with aba_cadastrar:
         else:
             st.error("Por favor, preencha pelo menos o nome da receita.")
 
-# ABA 2: BUSCAR RECEITA COM IA
+# ABA 2: BUSCAR RECEITA COM IA (COM FALLBACK AUTOMÁTICO)
 with aba_buscar_web:
     st.header("🔍 Buscar Receita com IA")
     st.write("Digite o nome de qualquer prato para gerar uma receita completa e profissional instantaneamente.")
@@ -175,49 +184,51 @@ with aba_buscar_web:
     termo_busca = st.text_input("O que você quer pesquisar? (ex: Pudim de Leite Condensado, Lasanha)")
     
     if st.button("Gerar Receita com IA", type="primary") and termo_busca:
-        if not modelo_ia:
-            st.error("Chave de API do Gemini não configurada.")
-        else:
-            with st.spinner("Criando uma receita incrível para você..."):
-                prompt_web = f"""
-                Atue como um chef renomado. Crie uma receita detalhada, tradicional e perfeita para: '{termo_busca}'.
-                Sua resposta deve conter estritamente 3 seções separadas pelas tags abaixo, sem texto extra fora delas:
-                ---NOME---
-                [Nome oficial e atraente do prato]
-                ---INGREDIENTES---
-                [Lista de ingredientes detalhada com medidas, um por linha]
-                ---PREPARO---
-                [Modo de preparo passo a passo claro e objetivo]
-                """
+        with st.spinner("Criando uma receita incrível para você..."):
+            prompt_web = f"""
+            Atue como um chef renomado. Crie uma receita detalhada, tradicional e perfeita para: '{termo_busca}'.
+            Sua resposta deve conter estritamente 3 seções separadas pelas tags abaixo, sem texto extra fora delas:
+            ---NOME---
+            [Nome oficial e atraente do prato]
+            ---INGREDIENTES---
+            [Lista de ingredientes detalhada com medidas, um por linha]
+            ---PREPARO---
+            [Modo de preparo passo a passo claro e objetivo]
+            """
+            
+            modelos_teste = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-1.0-pro']
+            resposta_ia = None
+            
+            for nome_m in modelos_teste:
                 try:
-                    # Fallback automático caso o modelo exija prefixo
-                    try:
-                        resposta_ia = modelo_ia.generate_content(prompt_web)
-                    except:
-                        modelo_alternativo = genai.GenerativeModel('models/gemini-1.5-flash')
-                        resposta_ia = modelo_alternativo.generate_content(prompt_web)
+                    m = genai.GenerativeModel(nome_m)
+                    resposta_ia = m.generate_content(prompt_web)
+                    if resposta_ia and resposta_ia.text:
+                        break
+                except:
+                    continue
+            
+            if resposta_ia and resposta_ia.text:
+                texto_resposta = resposta_ia.text
+                partes = texto_resposta.split("---")
+                nome_encontrado = termo_busca.title()
+                ingredientes_encontrados = ""
+                preparo_encontrado = ""
+                
+                for i, p in enumerate(partes):
+                    if "INGREDIENTES" in p and i + 1 < len(partes):
+                        ingredientes_encontrados = partes[i+1].strip()
+                    elif "PREPARO" in p and i + 1 < len(partes):
+                        preparo_encontrado = partes[i+1].strip()
+                    elif "NOME" in p and i + 1 < len(partes):
+                        nome_encontrado = partes[i+1].strip()
                         
-                    texto_resposta = resposta_ia.text
-                    
-                    partes = texto_resposta.split("---")
-                    nome_encontrado = termo_busca.title()
-                    ingredientes_encontrados = ""
-                    preparo_encontrado = ""
-                    
-                    for i, p in enumerate(partes):
-                        if "INGREDIENTES" in p and i + 1 < len(partes):
-                            ingredientes_encontrados = partes[i+1].strip()
-                        elif "PREPARO" in p and i + 1 < len(partes):
-                            preparo_encontrado = partes[i+1].strip()
-                        elif "NOME" in p and i + 1 < len(partes):
-                            nome_encontrado = partes[i+1].strip()
-                            
-                    st.session_state.web_nome = nome_encontrado
-                    st.session_state.web_ingredientes = ingredientes_encontrados
-                    st.session_state.web_preparo = preparo_encontrado
-                    st.success("Receita gerada com sucesso! Revise e importe abaixo.")
-                except Exception as e:
-                    st.error(f"Erro ao gerar receita: {e}")
+                st.session_state.web_nome = nome_encontrado
+                st.session_state.web_ingredientes = ingredientes_encontrados
+                st.session_state.web_preparo = preparo_encontrado
+                st.success("Receita gerada com sucesso! Revise e importe abaixo.")
+            else:
+                st.error("Não foi possível conectar com nenhum modelo de IA disponível. Verifique sua chave de API.")
 
     if "web_nome" in st.session_state and st.session_state.web_nome:
         st.divider()
