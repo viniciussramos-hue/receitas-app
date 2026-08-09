@@ -1,6 +1,7 @@
 streamlit
 pandas
-pillow
-google-generativeai
-fpdf2
+Pillow
+fpdf
+googlesearch-python
+beautifulsoup4
 requests
