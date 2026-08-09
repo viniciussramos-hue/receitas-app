@@ -9,9 +9,10 @@ from fpdf import FPDF
 # Configuração da página
 st.set_page_config(page_title="Livro de Receitas do Vinícius", page_icon="🍳", layout="wide")
 
-# Configuração da IA (Gemini)
+# Configuração da IA (Gemini - Atualizado para suportar a chave de Conta de Serviço)
 try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    api_key = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key)
     modelo_ia = genai.GenerativeModel('gemini-2.5-flash')
 except Exception as e:
     modelo_ia = None
@@ -129,7 +130,7 @@ with aba_cadastrar:
                     st.session_state.preparo_ia = res_preparo.text
                     st.rerun() 
                 except Exception as e:
-                    st.error("Erro ao conectar com a IA.")
+                    st.error(f"Erro ao conectar com a IA: {e}")
 
     if st.button("Salvar Receita", type="primary", use_container_width=True):
         if nome_receita:
