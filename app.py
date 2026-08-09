@@ -24,7 +24,7 @@ if not os.path.exists(PASTA_IMAGENS):
     os.makedirs(PASTA_IMAGENS)
 
 # ---------------------------------------------------------
-# FUNÇÃO PARA GERAR O PDF (Compatível com qualquer versão do FPDF)
+# FUNÇÃO PARA GERAR O PDF (Retorno corrigido)
 # ---------------------------------------------------------
 def gerar_pdf(df):
     pdf = FPDF()
@@ -33,7 +33,7 @@ def gerar_pdf(df):
     # Capa do Livro
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 24)
-    pdf.ln(40) # Espaçamento vertical seguro
+    pdf.ln(40)
     pdf.cell(0, 10, "Meu Livro de Receitas", align="C", ln=1)
     pdf.set_font("Helvetica", "I", 14)
     pdf.ln(5)
@@ -70,7 +70,7 @@ def gerar_pdf(df):
         prep_str = str(row['Preparo']).encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(0, 7, prep_str)
         
-    return pdf.output()
+    return pdf.output(dest='S')
 
 # ---------------------------------------------------------
 # INTERFACE DO STREAMLIT
@@ -203,7 +203,7 @@ with aba_visualizar:
             pdf_bytes = gerar_pdf(df_receitas)
             st.download_button(
                 label="📥 Baixar Livro em PDF",
-                data=bytes(pdf_bytes),
+                data=pdf_bytes,
                 file_name=f"Meu_Livro_de_Receitas_{datetime.now().strftime('%Y%m%d')}.pdf",
                 mime="application/pdf",
                 type="primary",
