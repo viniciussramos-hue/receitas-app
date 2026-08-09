@@ -24,7 +24,7 @@ if not os.path.exists(PASTA_IMAGENS):
     os.makedirs(PASTA_IMAGENS)
 
 # ---------------------------------------------------------
-# FUNÇÃO PARA GERAR O PDF
+# FUNÇÃO PARA GERAR O PDF (Compatível com qualquer versão do FPDF)
 # ---------------------------------------------------------
 def gerar_pdf(df):
     pdf = FPDF()
@@ -33,10 +33,11 @@ def gerar_pdf(df):
     # Capa do Livro
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 24)
-    pdf.cell(0, 100, "", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 10, "Meu Livro de Receitas", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(40) # Espaçamento vertical seguro
+    pdf.cell(0, 10, "Meu Livro de Receitas", align="C", ln=1)
     pdf.set_font("Helvetica", "I", 14)
-    pdf.cell(0, 10, f"Gerado em {datetime.now().strftime('%d/%m/%Y')}", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    pdf.cell(0, 10, f"Gerado em {datetime.now().strftime('%d/%m/%Y')}", align="C", ln=1)
     
     # Páginas das Receitas
     for index, row in df.iterrows():
@@ -44,7 +45,7 @@ def gerar_pdf(df):
         
         pdf.set_font("Helvetica", "B", 18)
         nome_str = str(row['Nome']).encode('latin-1', 'replace').decode('latin-1')
-        pdf.cell(0, 10, nome_str, align="C", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 10, nome_str, align="C", ln=1)
         
         caminho_img = row.get("Caminho_Imagem", "")
         if pd.notna(caminho_img) and os.path.exists(caminho_img):
@@ -57,14 +58,14 @@ def gerar_pdf(df):
             pdf.ln(10)
             
         pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, "Ingredientes:", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 10, "Ingredientes:", ln=1)
         pdf.set_font("Helvetica", "", 12)
         ing_str = str(row['Ingredientes']).encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(0, 7, ing_str)
         pdf.ln(5)
         
         pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, "Modo de Preparo:", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 10, "Modo de Preparo:", ln=1)
         pdf.set_font("Helvetica", "", 12)
         prep_str = str(row['Preparo']).encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(0, 7, prep_str)
@@ -138,7 +139,6 @@ with aba_pesquisar:
     if st.button("Gerar Links de Pesquisa", type="primary"):
         termo_cod = urllib.parse.quote(f"receita de {termo_busca}")
         
-        # Links diretos para os principais buscadores e portais de receitas
         st.session_state.links_web = [
             ("Google Search", f"https://www.google.com/search?q={termo_cod}"),
             ("TudoGostoso", f"https://www.tudogostoso.com.br/busca?q={termo_cod}"),
